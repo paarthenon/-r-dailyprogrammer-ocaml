@@ -17,10 +17,12 @@ module TM = struct
 		head : int;
 		state : state;
 		accept : state;
-		transition : state -> symbol -> action;
-		offset : int;
+		transition : state -> symbol -> action; (* The transition function is an actual function *)
+		offset : int; (* This is necessary so that we can keep 
+		track of the relative position of the beginning pipe*)
 	}
 
+	(* Trim a turing machine so that _ values on either end dont stick around if theyre not needed *)
 	let trim =
 		let has_extra_back tm =
 			(tm.head = (List.length tm.tape) - 2) && ((List.hd (List.rev tm.tape)) = '_') in
@@ -36,10 +38,12 @@ module TM = struct
 		| tm when (has_extra_back tm) -> {tm with head = tm.head - 1; tape = drop_back tm.tape}
 		| tm -> tm 
 
+	(* Apply an action to a turing machine *)
 	let apply tm action = 
 		let replace list index item = 
 			List.mapi (fun i elem -> if i = index then item else elem) list in
 
+		(* stuff that always happens *)
 		let tm' = 
 		{ tm with
 			tape = (replace tm.tape tm.head action.symbol);
@@ -47,6 +51,7 @@ module TM = struct
 			head = match action.move with Left -> tm.head - 1 | Right -> tm.head + 1;
 		} in
 
+		(* Extend the end if necessary *)
 		match tm'.head with 
 		| (-1) -> 
 			{tm' with tape = '_'::tm'.tape; head = 0; offset = tm.offset + 1}
@@ -55,8 +60,10 @@ module TM = struct
 		| _ ->
 			tm'
 
+	(* Apply an action and trim the result *)
 	let step tm = trim (apply tm (tm.transition tm.state (List.nth tm.tape tm.head)))
 
+	(* Build a new TM *)
 	let create tape start final transition_table =
 		let transition_of_table table = Hashtbl.find table in
 
@@ -72,40 +79,42 @@ module TM = struct
 		  transition = (fun state symbol -> transition_of_table transition_table (state, symbol));
 		  offset = 0 }
 
+	(* Execute: Step until the end state is reached *)
 	let rec execute tm = 
 		if tm.state = tm.accept then tm else execute (step tm)
 
+	(* Print the TM output *)
 	let print tm =
 		List.iter (fun s -> print_char s) tm.tape;
 		print_newline ();
-		let loc_string = List.mapi (fun i elem -> if i = (0 + tm.offset) then '|' else if i = tm.head then '^' else ' ') tm.tape in
+		let loc_string = List.mapi 
+			(fun i elem -> if i = (0 + tm.offset) then '|' else if i = tm.head then '^' else ' ') tm.tape in
 		List.iter (fun s -> print_char s) loc_string;
 		print_newline ()
 end
 
 let () =
-	let lang_str = read_line () in
-	let states = read_line () in
+	(* Grab raw inputs *)
+	let _ = read_line () in (* I actually dont care about the alphabet *)
+	let _ = read_line () in (* Nor do I care about what the states are *)
 	let start_state = read_line () in
 	let accept_state = read_line () in
 	let tape = read_line () in
 
-	let num_letters = (String.length lang_str) + 1 in
-	let num_states = (List.length (Str.split (Str.regexp " ") states)) in
-	let num_transitions = num_letters * (num_states - 1) in
-
-	let transition_table = Hashtbl.create num_transitions in
-	let parse_direction = function '<' -> TM.Left | '>' -> TM.Right in
-	Printf.printf "Expecting %d rules" num_transitions;
-	for i = 1 to (num_transitions) do
-		let transition_str = read_line () in
-		Scanf.sscanf transition_str "%s %c = %s %c %c" (fun s1 l1 s2 l2 dir -> 
-			Hashtbl.add transition_table (s1, l1) ({TM.state = s2; TM.symbol = l2; TM.move = parse_direction dir})
-		)
-	done;
+	(* Parse raw inputs into a HashMap. The 100 is arbitrary, the map grows *)
+	let transition_table = Hashtbl.create 100 in
+	let parse_direction = function '<' -> TM.Left | '>' -> TM.Right | _ -> raise (Failure "Invalid direction") in
+	try
+		while true do
+			let transition_str = read_line () in
+			Scanf.sscanf transition_str "%s %c = %s %c %c" (fun s1 l1 s2 l2 dir -> 
+				Hashtbl.add transition_table (s1, l1) ({TM.state = s2; TM.symbol = l2; TM.move = parse_direction dir}))
+		done;
+	with
+		End_of_file -> ();
 
 	let tm = TM.create tape start_state accept_state transition_table in
 	let tm' = TM.execute tm in
-	TM.print tm';
+	TM.print tm'
 
 
